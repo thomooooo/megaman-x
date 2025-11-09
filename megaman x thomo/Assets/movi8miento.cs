@@ -1,72 +1,108 @@
 using UnityEngine;
 
 [RequireComponent(typeof(Rigidbody2D))]
-public class MegaManX2Simple : MonoBehaviour
+public class MegaManXWallSlide : MonoBehaviour
 {
     [Header("Movimiento")]
-    public float moveSpeed = 8f;            // Velocidad máxima
-    public float acceleration = 20f;        // Qué tan rápido acelera
-    public float deceleration = 25f;        // Qué tan rápido se detiene
-    private float velocityX;
-    private float inputX;
-
-    [Header("Salto")]
+    public float moveSpeed = 8f;
     public float jumpForce = 14f;
-    private bool isGrounded;
+
+    [Header("Paredes")]
+    public float wallSlideSpeed = 2f;
+    public float wallJumpForce = 14f;
+    public Vector2 wallJumpDirection = new Vector2(1, 1.2f);
+    public Transform wallCheck;
+    public float wallCheckRadius = 0.2f;
+    public LayerMask wallLayer;
 
     [Header("Suelo")]
     public Transform groundCheck;
-    public float groundRadius = 0.1f;
+    public float groundCheckRadius = 0.2f;
     public LayerMask groundLayer;
 
     private Rigidbody2D rb;
-    private SpriteRenderer sr;
+    private bool isGrounded;
+    private bool isTouchingWall;
+    private bool isWallSliding;
+    private bool isWallJumping;
+    private float moveInput;
+    private int facingDirection = 1; // 1 = derecha, -1 = izquierda
 
-    void Start()
+    private void Start()
     {
         rb = GetComponent<Rigidbody2D>();
-        sr = GetComponent<SpriteRenderer>();
+        wallJumpDirection.Normalize();
     }
 
-    void Update()
+    private void Update()
     {
-        // --- INPUT ---
-        inputX = 0f;
-        if (Input.GetKey(KeyCode.A))
-            inputX = -1f;
-        else if (Input.GetKey(KeyCode.D))
-            inputX = 1f;
+        moveInput = Input.GetAxisRaw("Horizontal");
+        isGrounded = Physics2D.OverlapCircle(groundCheck.position, groundCheckRadius, groundLayer);
+        isTouchingWall = Physics2D.OverlapCircle(wallCheck.position, wallCheckRadius, wallLayer);
 
-        // --- SALTO ---
-        isGrounded = Physics2D.OverlapCircle(groundCheck.position, groundRadius, groundLayer);
+        // --- DirecciÃ³n actual del personaje ---
+        if (moveInput > 0) facingDirection = 1;
+        else if (moveInput < 0) facingDirection = -1;
 
+        // --- Movimiento normal ---
+        if (!isWallSliding && !isWallJumping)
+        {
+            rb.linearVelocity = new Vector2(moveInput * moveSpeed, rb.linearVelocity.y);
+        }
+
+        // --- Salto normal ---
         if (Input.GetKeyDown(KeyCode.Space) && isGrounded)
         {
-            rb.velocity = new Vector2(rb.velocity.x, jumpForce);
+            rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
         }
 
-        // --- FLIP ---
-        if (inputX != 0)
-            sr.flipX = inputX < 0;
-    }
-
-    void FixedUpdate()
-    {
-        // --- MOVIMIENTO CON SUAVIDAD ---
-        if (Mathf.Abs(inputX) > 0.1f)
-            velocityX = Mathf.MoveTowards(velocityX, inputX * moveSpeed, acceleration * Time.fixedDeltaTime);
-        else
-            velocityX = Mathf.MoveTowards(velocityX, 0, deceleration * Time.fixedDeltaTime);
-
-        rb.velocity = new Vector2(velocityX, rb.velocity.y);
-    }
-
-    void OnDrawGizmosSelected()
-    {
-        if (groundCheck != null)
+        // --- DetecciÃ³n de deslizamiento por pared ---
+        if (isTouchingWall && !isGrounded && moveInput == facingDirection)
         {
-            Gizmos.color = Color.yellow;
-            Gizmos.DrawWireSphere(groundCheck.position, groundRadius);
+            isWallSliding = true;
         }
+        else
+        {
+            isWallSliding = false;
+        }
+
+        // ðŸ’¡ NUEVO: si presionÃ¡s en direcciÃ³n contraria, se despega al instante
+        if (isWallSliding && moveInput == -facingDirection)
+        {
+            isWallSliding = false;
+        }
+
+        // --- Deslizamiento ---
+        if (isWallSliding)
+        {
+            rb.linearVelocity = new Vector2(0, Mathf.Max(rb.linearVelocity.y, -wallSlideSpeed));
+        }
+
+        // --- Salto desde la pared ---
+        if (Input.GetKeyDown(KeyCode.Space) && isWallSliding)
+        {
+            isWallSliding = false;
+            isWallJumping = true;
+
+            Vector2 force = new Vector2(-facingDirection * wallJumpDirection.x, wallJumpDirection.y) * wallJumpForce;
+            rb.linearVelocity = Vector2.zero;
+            rb.AddForce(force, ForceMode2D.Impulse);
+
+            Invoke(nameof(StopWallJump), 0.2f);
+        }
+    }
+
+    private void StopWallJump()
+    {
+        isWallJumping = false;
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        if (wallCheck != null)
+            Gizmos.DrawWireSphere(wallCheck.position, wallCheckRadius);
+
+        if (groundCheck != null)
+            Gizmos.DrawWireSphere(groundCheck.position, groundCheckRadius);
     }
 }
