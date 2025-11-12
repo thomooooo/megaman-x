@@ -21,6 +21,16 @@ public class MegaManXWallSlide : MonoBehaviour
     public float groundCheckRadius = 0.2f;
     public LayerMask groundLayer;
 
+    [Header("Dash")]
+    public float dashSpeed = 20f;           // velocidad del dash
+    public float dashDuration = 0.2f;       // duración total del dash
+    public float dashCooldown = 0.5f;       // tiempo antes de poder volver a hacer dash
+    public KeyCode dashKey = KeyCode.LeftShift;
+
+    private bool isDashing = false;
+    private bool canDash = true;
+    private float dashTimer;
+
     private Rigidbody2D rb;
     private Animator ani;
 
@@ -52,23 +62,41 @@ public class MegaManXWallSlide : MonoBehaviour
         moveInput = Input.GetAxis("Horizontal");
         isGrounded = Physics2D.OverlapCircle(groundCheck.position, groundCheckRadius, groundLayer);
         isTouchingWall = Physics2D.OverlapCircle(wallCheck.position, wallCheckRadius, wallLayer);
+        // Detecta paredes a izquierda y derecha por separado
+        bool wallOnRight = Physics2D.Raycast(transform.position, Vector2.right, wallCheckRadius + 0.1f, wallLayer);
+        bool wallOnLeft = Physics2D.Raycast(transform.position, Vector2.left, wallCheckRadius + 0.1f, wallLayer);
+
 
         // --- dirección ---
         if (moveInput > 0.05f) facingDirection = 1;
         else if (moveInput < -0.05f) facingDirection = -1;
 
         // --- movimiento horizontal ---
-        if (!isWallSliding && !isWallJumping)
+        if (!isWallSliding && !isWallJumping && !isDashing)
         {
             rb.linearVelocity = new Vector2(moveInput * moveSpeed, rb.linearVelocity.y);
         }
-
         // --- salto normal ---
         if (Input.GetKeyDown(KeyCode.Space) && isGrounded)
         {
             rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
             isJumping = true;
             ani.SetTrigger("jumpTrigger");
+        }
+
+        // --- DASH ---
+        if (Input.GetKeyDown(dashKey) && canDash && !isWallSliding)
+        {
+            StartDash();
+        }
+
+        if (isDashing)
+        {
+            dashTimer -= Time.deltaTime;
+            if (dashTimer <= 0)
+            {
+                EndDash();
+            }
         }
 
         if (rb.linearVelocity.y < -0.1f && !isGrounded)
@@ -120,20 +148,78 @@ public class MegaManXWallSlide : MonoBehaviour
         ani.SetBool("isWallSliding", isWallSliding);
         ani.SetBool("isWallJumping", isWallJumping);
 
-        // --- giro visual ---
-        if (!isWallJumping)
+        // --- giro visual mejorado ---
+        Vector3 s = transform.localScale;
+
+        // Si está en wall slide, mirar hacia la pared
+        if (isWallSliding)
         {
-            Vector3 s = transform.localScale;
-            if (lastNonZeroInput > 0.05f)
+            if (wallOnRight)
+            {
+                facingDirection = 1;
                 transform.localScale = new Vector3(Mathf.Abs(s.x), s.y, s.z);
-            else if (lastNonZeroInput < -0.05f)
+            }
+            else if (wallOnLeft)
+            {
+                facingDirection = -1;
                 transform.localScale = new Vector3(-Mathf.Abs(s.x), s.y, s.z);
+            }
         }
+        // Si no está en wall slide, girar según el input
+        else if (!isWallJumping)
+        {
+            if (moveInput > 0.05f)
+            {
+                facingDirection = 1;
+                transform.localScale = new Vector3(Mathf.Abs(s.x), s.y, s.z);
+                lastNonZeroInput = 1;
+            }
+            else if (moveInput < -0.05f)
+            {
+                facingDirection = -1;
+                transform.localScale = new Vector3(-Mathf.Abs(s.x), s.y, s.z);
+                lastNonZeroInput = -1;
+            }
+        }
+
     }
+
 
     private void StopWallJump()
     {
         isWallJumping = false;
+    }
+
+    private void StartDash()
+    {
+        isDashing = true;
+        canDash = false;
+        dashTimer = dashDuration;
+
+        // cancela la velocidad vertical para que no frene el dash
+        rb.linearVelocity = new Vector2(facingDirection * dashSpeed, 0f);
+
+        // activa animación del dash (debes crear el trigger en el Animator)
+        ani.SetTrigger("dashTrigger");
+
+        // puede opcionalmente desactivar la gravedad mientras dura
+        rb.gravityScale = 0;
+
+        // termina el dash automáticamente luego del tiempo indicado
+        Invoke(nameof(EndDash), dashDuration);
+        Invoke(nameof(ResetDash), dashCooldown);
+    }
+
+    private void EndDash()
+    {
+        if (!isDashing) return;
+        isDashing = false;
+        rb.gravityScale = 1;
+    }
+
+    private void ResetDash()
+    {
+        canDash = true;
     }
 
     private void OnDrawGizmosSelected()
@@ -142,5 +228,10 @@ public class MegaManXWallSlide : MonoBehaviour
             Gizmos.DrawWireSphere(wallCheck.position, wallCheckRadius);
         if (groundCheck != null)
             Gizmos.DrawWireSphere(groundCheck.position, groundCheckRadius);
+
+        // Raycasts para pared izquierda y derecha
+        Gizmos.color = Color.red;
+        Gizmos.DrawLine(transform.position, transform.position + Vector3.right * (wallCheckRadius + 0.1f));
+        Gizmos.DrawLine(transform.position, transform.position + Vector3.left * (wallCheckRadius + 0.1f));
     }
 }
